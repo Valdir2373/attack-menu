@@ -1,0 +1,16 @@
+{
+  "art": {
+    "default": "cowsay",
+    "cowsay": {
+      "figure": "tux",
+      "message": "Terminal Operator !! ",
+      "delay": 400
+    },
+    "sexy": {
+      "delay": 8000
+    }
+  },
+  "menu": {
+    "name": "Terminal Attack GM2373_404"
+  }
+}

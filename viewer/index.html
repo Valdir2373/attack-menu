@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>C2 Screen Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #c0c0c0;
+      font-family: 'Consolas', 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    #header {
+      padding: 12px 24px;
+      width: 100%;
+      background: #111;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #header h1 { font-size: 16px; color: #ff0000; }
+    #status { font-size: 13px; }
+    #status.connected { color: #00ff00; }
+    #status.disconnected { color: #ff0000; }
+    #stats { font-size: 12px; color: #888; }
+    #canvas-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+    }
+    canvas {
+      max-width: 100%;
+      max-height: calc(100vh - 60px);
+      border: 1px solid #333;
+      image-rendering: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>C2 Screen Viewer</h1>
+    <span id="status" class="disconnected">Desconectado</span>
+    <span id="stats">0 fps | 0 KB/frame</span>
+  </div>
+  <div id="canvas-container">
+    <canvas id="screen"></canvas>
+  </div>
+
+  <script>
+    const WS_URL    = "__WS_URL__";
+    const MACHINE_ID = "__MACHINE_ID__";
+
+    const canvas = document.getElementById("screen");
+    const ctx    = canvas.getContext("2d");
+    const status = document.getElementById("status");
+    const stats  = document.getElementById("stats");
+
+    let frameCount = 0;
+    let lastFpsTime = Date.now();
+    let lastFrameSize = 0;
+
+    function connect() {
+      status.textContent = "Conectando...";
+      status.className = "disconnected";
+
+      const ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        status.textContent = "Conectado";
+        status.className = "connected";
+        ws.send(JSON.stringify({ type: "viewer", machine_id: MACHINE_ID }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "screen_frame" && msg.data) {
+            renderFrame(msg.data);
+          } else if (msg.type === "viewer_ok") {
+            status.textContent = "Registrado (" + msg.machine_id + ")";
+            status.className = "connected";
+          } else if (msg.type === "error") {
+            status.textContent = "Erro: " + msg.error;
+            status.className = "disconnected";
+          }
+        } catch (e) { /* ignore parse errors */ }
+      };
+
+      ws.onclose = () => {
+        status.textContent = "Desconectado — reconectando...";
+        status.className = "disconnected";
+        setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => { ws.close(); };
+    }
+
+    function renderFrame(b64jpeg) {
+      const img = new Image();
+      img.onload = () => {
+        if (canvas.width !== img.width || canvas.height !== img.height) {
+          canvas.width  = img.width;
+          canvas.height = img.height;
+        }
+        ctx.drawImage(img, 0, 0);
+
+        frameCount++;
+        lastFrameSize = Math.round(b64jpeg.length * 0.75 / 1024);
+        const now = Date.now();
+        if (now - lastFpsTime >= 1000) {
+          stats.textContent = `${frameCount} fps | ${lastFrameSize} KB/frame`;
+          frameCount = 0;
+          lastFpsTime = now;
+        }
+      };
+      img.src = "data:image/jpeg;base64," + b64jpeg;
+    }
+
+    connect();
+  </script>
+</body>
+</html>

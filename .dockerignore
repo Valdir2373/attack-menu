@@ -1,0 +1,33 @@
+# Docker build context — NÃO ignorar src-p, src-rb, compiler
+# Cada Dockerfile copia só o que precisa
+
+node_modules/
+.git/
+.cache/
+.claude/
+coverage/
+dist/
+output/
+secrets/
+temp/
+
+# Arquivos sensíveis
+.env
+*.cookies
+*.log
+
+# Scraped data
+scraped_*.txt
+*_creds.txt
+*_urls.txt
+mongo_validos*.txt
+supaTeste.txt
+
+# Docs (não precisam ir pro container)
+CLAUDE.md
+ARQUITETURA_COMPLETA.md
+CRITICAL_POINTS.md
+TESTING_STRATEGY.md
+WHAT_ELSE_IS_MISSING.md
+IMAGENS.txt
+STRUCTURE.md

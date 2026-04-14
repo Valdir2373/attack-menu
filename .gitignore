@@ -1,0 +1,34 @@
+node_modules/
+dist/
+coverage/
+temp/
+mongo_validos
+
+*.log
+*.cookies
+
+.env
+.claude
+
+emails_validos.txt
+mongo_validos456.txt
+supabase_validos.txt
+github_results.txt
+supabase_results.txt
+
+a.js
+
+UrlsRAT.json
+
+
+# Scraped credentials
+scraped_*.txt
+supabase_creds.txt
+firebase_urls.txt
+supaTeste.txt
+
+# Docker
+compiler/*/builds/
+secrets/
+output/
+logs/

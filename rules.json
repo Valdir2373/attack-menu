@@ -1,0 +1,91 @@
+{
+  "global": {
+    "blockUrls": [
+      "googleads.com",
+      "doubleclick.net",
+      "googlesyndication.com",
+      "amazon-adsystem.com",
+      "adservice.google",
+      "propellerads.com",
+      "popads.net",
+      "trafficjunky.com",
+      "exoclick.com",
+      "juicyads.com",
+      "adskeeper.com",
+      "bidvertiser.com",
+      "rkv1",
+      "21wiz",
+      "code.21",
+      "zoomex.com",
+      "e7cod",
+      "/pagead/",
+      "/gtag/js",
+      "google-analytics.com",
+      "hotjar.com",
+      "clarity.ms",
+      "facebook.com/tr",
+      "connect.facebook.net",
+      "goapoachowoovol.net"
+    ],
+    "blockPatterns": [
+      "\\.(js|php)\\?.*ad[_-]?(id|unit|slot|code)=",
+      "tracker[_-]?(id|script|pixel)",
+      "pixel\\.php",
+      "\\.reduce\\(\\(v,g,L\\)=>L%2\\?v\\+g:g\\+v\\)\\.split\\(\"z\"\\)"
+    ],
+    "replace": [
+      {
+        "from": "\"role\":\"user\"",
+        "to": "\"role\":\"admin\"",
+        "on": "response"
+      },
+      {
+        "from": "\"role\": \"user\"",
+        "to": "\"role\": \"admin\"",
+        "on": "response"
+      },
+      {
+        "from": "\"is_admin\":false",
+        "to": "\"is_admin\":true",
+        "on": "response"
+      },
+      {
+        "from": "\"is_admin\": false",
+        "to": "\"is_admin\": true",
+        "on": "response"
+      },
+      {
+        "from": "\"premium\":false",
+        "to": "\"premium\":true",
+        "on": "response"
+      },
+      {
+        "from": "\"isPremium\":false",
+        "to": "\"isPremium\":true",
+        "on": "response"
+      },
+      { "from": "\"vip\":false", "to": "\"vip\":true", "on": "response" },
+      { "from": "\"banned\":true", "to": "\"banned\":false", "on": "response" }
+    ],
+    "stripHeaders": [
+      "x-xss-protection",
+      "permissions-policy",
+      "referrer-policy",
+      "cross-origin-opener-policy",
+      "cross-origin-embedder-policy",
+      "cross-origin-resource-policy"
+    ]
+  },
+  "sites": {
+    "goyabu.io": {
+      "blockUrls": ["solvemedia.com"],
+      "replace": [
+        {
+          "from": "\"assinante\":false",
+          "to": "\"assinante\":true",
+          "on": "response"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+source "https://rubygems.org"
+
+gem "thin",            "~> 1.8"
+gem "sinatra",         "~> 3.0"
+gem "faye-websocket",  "~> 0.11"
+gem "sorbet-runtime",  "~> 0.5"
+gem "dotenv",          "~> 3.0"
+gem "json"
+gem "rack"
+
+group :test do
+  gem "rspec", "~> 3.12"
+end
